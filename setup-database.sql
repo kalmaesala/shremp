@@ -3,7 +3,7 @@
 -- ➡️ وخلاص! مفيش حاجة تانية
 
 CREATE TABLE IF NOT EXISTS orders (
-  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  id TEXT PRIMARY KEY DEFAULT (gen_random_uuid()::text),
   order_number INTEGER NOT NULL,
   customer_name TEXT NOT NULL,
   phone TEXT NOT NULL,
@@ -13,24 +13,26 @@ CREATE TABLE IF NOT EXISTS orders (
   total REAL NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   notes TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- عشان الأرقام تزيد تلقائياً
-CREATE SEQUENCE IF NOT EXISTS order_seq START 1;
-CREATE TRIGGER IF NOT EXISTS set_order_number
-  BEFORE INSERT ON orders
-  BEGIN
-    SELECT COALESCE(
-      (SELECT MAX(order_number) FROM orders), 0
-    ) + 1 INTO NEW.order_number;
-  END;
+CREATE OR REPLACE FUNCTION set_order_number_fn()
+RETURNS TRIGGER AS $$ BEGIN
+  NEW.order_number := COALESCE((SELECT MAX(order_number) FROM orders), 0) + 1;
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END;
+ $$ LANGUAGE plpgsql;
 
--- عشان الـ Realtime تشتغل
+DROP TRIGGER IF EXISTS set_order_number ON orders;
+CREATE TRIGGER set_order_number
+  BEFORE INSERT ON orders
+  FOR EACH ROW
+  EXECUTE FUNCTION set_order_number_fn();
+
 ALTER PUBLICATION supabase_realtime ADD TABLE orders;
 
--- صلاحيات: أي حد يقدر يقرأ ويكتب (للمواقع الثابتة)
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read" ON orders FOR SELECT USING (true);
 CREATE POLICY "Public insert" ON orders FOR INSERT WITH CHECK (true);
